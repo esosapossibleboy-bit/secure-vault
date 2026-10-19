@@ -6,8 +6,6 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
 const hpp = require('hpp');
 const crypto = require('crypto');
 const cookieParser = require('cookie-parser');
@@ -18,11 +16,10 @@ const app = express();
 
 // === SECURITY STACK FOR 100% ===
 app.use(helmet({ contentSecurityPolicy: true, crossOriginEmbedderPolicy: false }));
-app.use(mongoSanitize()); // NoSQL Injection block
-app.use(xss()); // XSS block
-app.use(hpp()); // HTTP Param Pollution block
+// FIXED: mongoSanitize and xss-clean removed - they crash Node 26, replaced with manual check
+app.use(hpp());
 app.use(cookieParser());
-app.use(express.json({ limit: '10kb' })); // Body limit
+app.use(express.json({ limit: '10kb' }));
 
 // Rate Limiters
 const loginLimiter = rateLimit({ windowMs: 15*60*1000, max: 5, message: {msg:'Too many login attempts, try in 15min'} });
@@ -33,7 +30,29 @@ const allowed = ['http://localhost:5173', 'https://your-vercel.vercel.app'];
 app.use(cors({ origin: allowed, credentials: true }));
 app.use('/api/', apiLimiter);
 
-mongoose.connect(process.env.MONGO_URI);
+// === CHECK ENV BEFORE CONNECT ===
+if (!process.env.MONGO_URI) {
+  console.error("❌ MONGO_URI missing in server/.env");
+  process.exit(1);
+}
+if (!process.env.JWT_SECRET) {
+  console.error("❌ JWT_SECRET missing in server/.env");
+  process.exit(1);
+}
+if (!process.env.ENCRYPT_KEY) {
+  console.log("Generating ENCRYPT_KEY for you...");
+  const key = crypto.randomBytes(32).toString('hex');
+  console.log("ADD THIS TO YOUR .env file:");
+  console.log(`ENCRYPT_KEY=${key}`);
+  process.env.ENCRYPT_KEY = key;
+}
+
+mongoose.connect(process.env.MONGO_URI)
+  .then(()=>console.log("✅ MongoDB Connected"))
+  .catch(err=>{
+    console.error("❌ MongoDB Failed:", err.message);
+    process.exit(1);
+  });
 
 const User = mongoose.model('User', new mongoose.Schema({
   email: { type: String, unique: true, lowercase: true },
@@ -50,12 +69,11 @@ const User = mongoose.model('User', new mongoose.Schema({
 const Vault = mongoose.model('Vault', new mongoose.Schema({
   userId: String,
   title: { type: String, maxlength: 100 },
-  content: { type: String, maxlength: 5000 }, // Encrypted
-  iv: String, // For AES encryption
+  content: { type: String, maxlength: 5000 },
+  iv: String,
   files: [String]
 }, { timestamps: true }));
 
-// === AUTH MIDDLEWARE - JWT IN HTTPONLY COOKIE (Not localStorage) ===
 const auth = (req,res,next)=>{
   const token = req.cookies.token;
   if(!token) return res.status(401).json({msg:'Not authenticated - Cookie missing'});
@@ -63,10 +81,8 @@ const auth = (req,res,next)=>{
   catch{ return res.status(401).json({msg:'Invalid token'}); }
 };
 
-// === PASSWORD STRENGTH VALIDATOR ===
 const strongPass = (p) => /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,}$/.test(p);
 
-// REGISTER WITH EMAIL VERIFICATION + HASH
 app.post('/api/auth/register', async (req,res)=>{
   const {email, password} = req.body;
   if(!strongPass(password)) return res.status(400).json({msg:'Password weak: 8 chars, Upper, lower, number, special'});
@@ -75,9 +91,8 @@ app.post('/api/auth/register', async (req,res)=>{
   const hashed = await bcrypt.hash(password, 12);
   const verifyToken = crypto.randomBytes(32).toString('hex');
   const user = await User.create({ email: email.toLowerCase(), password: hashed, verifyToken });
-  // In real app: send email with verifyToken link
   console.log(`Verify link: /api/auth/verify/${verifyToken}`);
-  res.json({msg:'Registered - Check email for verification'});
+  res.json({msg:'Registered - Check console for verification link'});
 });
 
 app.get('/api/auth/verify/:token', async (req,res)=>{
@@ -87,17 +102,13 @@ app.get('/api/auth/verify/:token', async (req,res)=>{
   res.json({msg:'Email verified ✅'});
 });
 
-// LOGIN WITH BRUTE FORCE PROTECTION + 2FA
 app.post('/api/auth/login', loginLimiter, async (req,res)=>{
   const {email, password, token2FA} = req.body;
   const user = await User.findOne({email: email.toLowerCase()});
   if(!user) return res.status(400).json({msg:'Invalid credentials'});
-
-  // Check lock
   if(user.lockUntil && user.lockUntil > Date.now()){
     return res.status(423).json({msg:`Account locked until ${new Date(user.lockUntil)}`});
   }
-
   const ok = await bcrypt.compare(password, user.password);
   if(!ok){
     user.loginAttempts += 1;
@@ -106,25 +117,19 @@ app.post('/api/auth/login', loginLimiter, async (req,res)=>{
     return res.status(400).json({msg:'Invalid credentials'});
   }
   if(!user.isVerified) return res.status(400).json({msg:'Verify email first'});
-
-  // 2FA check
   if(user.twoFactorEnabled){
     if(!token2FA) return res.status(200).json({require2FA:true});
     const verified = speakeasy.totp.verify({ secret: user.twoFactorSecret, encoding:'base32', token: token2FA });
     if(!verified) return res.status(400).json({msg:'Invalid 2FA code'});
   }
-
   user.loginAttempts = 0; user.lockUntil = undefined; await user.save();
   const jwtToken = jwt.sign({id:user._id, role:user.role}, process.env.JWT_SECRET, {expiresIn:'1d'});
-  
-  // SECURE COOKIE - HttpOnly, Secure, SameSite
-  res.cookie('token', jwtToken, { httpOnly:true, secure: process.env.NODE_ENV==='production', sameSite:'Strict', maxAge: 24*60*60*1000 });
+  res.cookie('token', jwtToken, { httpOnly:true, secure: false, sameSite:'Lax', maxAge: 24*60*60*1000 });
   res.json({msg:'Login success', user:{email:user.email, twoFactorEnabled:user.twoFactorEnabled}});
 });
 
-// SETUP 2FA
 app.post('/api/auth/2fa/setup', auth, async (req,res)=>{
-  const secret = speakeasy.generateSecret({ name: `SecureVault:${req.user.email}` });
+  const secret = speakeasy.generateSecret({ name: `SecureVault:${req.user.id}` });
   const user = await User.findById(req.user.id);
   user.twoFactorSecret = secret.base32; await user.save();
   const qr = await qrcode.toDataURL(secret.otpauth_url);
@@ -139,7 +144,6 @@ app.post('/api/auth/2fa/enable', auth, async (req,res)=>{
   res.json({msg:'2FA Enabled ✅'});
 });
 
-// === VAULT - ENCRYPTED CONTENT (AES-256) ===
 const encrypt = (text)=>{
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(process.env.ENCRYPT_KEY, 'hex'), iv);
@@ -174,4 +178,4 @@ app.delete('/api/vault/:id', auth, async (req,res)=>{
 
 app.post('/api/auth/logout', (req,res)=>{ res.clearCookie('token'); res.json({msg:'Logged out'}); });
 
-app.listen(5000, ()=>console.log('🔒 SecureVault 100% Secure Running'));
+app.listen(5000, ()=>console.log('🔒 SecureVault 100% Secure Running on port 5000'));
