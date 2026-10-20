@@ -1,11 +1,15 @@
 const express = require('express');
-const protect = require('../middleware/auth');
-const vaultController = require('../controllers/vaultController');
+const auth = require('../middleware/auth'); // you already have this
+const validate = require('../middleware/validate');
+const { vaultSchema } = require('../middleware/validationSchemas');
+const { getVault, saveVault, deleteVault } = require('../controllers/vaultController');
+
 const router = express.Router();
 
-router.use(protect);
-router.get('/', vaultController.getVault);
-router.post('/', vaultController.saveVault);
-router.delete('/', vaultController.deleteVault);
+router.use(auth); // Block unauthenticated at border
+
+router.get('/', getVault);
+router.post('/', validate(vaultSchema), saveVault);
+router.delete('/', deleteVault);
 
 module.exports = router;

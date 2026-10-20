@@ -1,17 +1,14 @@
-const { body, validationResult } = require('express-validator');
+const Joi = require('joi');
 
-exports.registerRules = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 8, max: 128 })
-];
-
-exports.loginRules = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').exists()
-];
-
-exports.validate = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+const validate = (schema) => (req, res, next) => {
+  const { error } = schema.validate(req.body, { abortEarly: false, stripUnknown: true });
+  if (error) {
+    return res.status(400).json({
+      message: 'Validation failed',
+      errors: error.details.map(d => d.message)
+    });
+  }
   next();
 };
+
+module.exports = validate;
