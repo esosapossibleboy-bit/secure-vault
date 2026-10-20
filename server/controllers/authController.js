@@ -1,89 +1,82 @@
+const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const User = require('../models/User');
-const RefreshToken = require('../models/RefreshToken');
 
-const ACCESS_EXPIRES = '15m';
-const REFRESH_DAYS = 7;
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
+const REFRESH_SECRET = process.env.REFRESH_SECRET || 'dev_refresh_secret';
 
-function signAccessToken(userId){
-  return jwt.sign({ id: userId }, process.env.ACCESS_SECRET || process.env.JWT_SECRET, { expiresIn: ACCESS_EXPIRES });
+function generateTokens(userId) {
+  const accessToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign({ id: userId }, REFRESH_SECRET, { expiresIn: '7d' });
+  return { accessToken, refreshToken };
 }
-function generateRefreshToken(){ return crypto.randomBytes(64).toString('hex'); }
-function hashToken(t){ return crypto.createHash('sha256').update(t).digest('hex'); }
 
-exports.register = async (req,res)=>{
-  const { email, password } = req.body;
-  if(await User.findOne({ email })) return res.status(400).json({ error: 'User exists' });
-  const passwordHash = await bcrypt.hash(password, 12);
-  const user = await User.create({ email, passwordHash });
-  res.json({ success: true, user: user.email });
-};
+// Days 1-2: Registration with hash + salt
+exports.register = async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-exports.login = async (req,res)=>{
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
-  if(!user) return res.status(400).json({ error: 'Invalid credentials' });
+    // operational validation: check existing
+    const exists = await User.findOne({ email });
+    if (exists) return res.status(409).json({ message: 'Email already registered' });
 
-  if(user.lockUntil && user.lockUntil > Date.now()){
-    const mins = Math.ceil((user.lockUntil - Date.now())/60000);
-    return res.status(423).json({ error: `Locked ${mins} min`, locked: true });
+    // HASH + SALT with bcrypt (12 rounds)
+    const salt = await bcrypt.genSalt(12);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const user = await User.create({ email, password: hashedPassword });
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
+
+    res.status(201).json({ 
+      message: 'User registered',
+      accessToken, 
+      refreshToken,
+      user: { id: user._id, email: user.email }
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
+};
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if(!valid){
-    user.loginAttempts += 1;
-    if(user.loginAttempts >= 5) user.lockUntil = new Date(Date.now()+15*60*1000);
-    await user.save();
-    return res.status(400).json({ error: 'Invalid credentials', attempts: `${user.loginAttempts}/5` });
+// Login with validation routine
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+
+    // Compare plain vs hash
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
+
+    res.json({
+      message: 'Login successful',
+      accessToken,
+      refreshToken,
+      user: { id: user._id, email: user.email }
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  user.loginAttempts = 0; user.lockUntil = null; await user.save();
-
-  const accessToken = signAccessToken(user._id);
-  const refreshToken = generateRefreshToken();
-  await RefreshToken.create({
-    userId: user._id,
-    tokenHash: hashToken(refreshToken),
-    expiresAt: new Date(Date.now() + REFRESH_DAYS*24*60*60*1000)
-  });
-
-  res.cookie('refreshToken', refreshToken, {
-    httpOnly: true, secure: false, sameSite: 'lax',
-    maxAge: REFRESH_DAYS*24*60*60*1000, path: '/'
-  });
-
-  res.json({ success: true, accessToken, expiresIn: ACCESS_EXPIRES });
 };
 
-exports.refresh = async (req,res)=>{
-  const token = req.cookies?.refreshToken || req.body.refreshToken;
-  if(!token) return res.status(401).json({ error: 'No refresh token' });
-  const hashed = hashToken(token);
-  const stored = await RefreshToken.findOne({ tokenHash: hashed, revoked: false });
-  if(!stored || stored.expiresAt < new Date()) return res.status(401).json({ error: 'Refresh expired' });
-
-  await RefreshToken.deleteOne({ _id: stored._id });
-  const newRefresh = generateRefreshToken();
-  await RefreshToken.create({
-    userId: stored.userId,
-    tokenHash: hashToken(newRefresh),
-    expiresAt: new Date(Date.now() + REFRESH_DAYS*24*60*60*1000)
-  });
-
-  res.cookie('refreshToken', newRefresh, {
-    httpOnly: true, secure: false, sameSite: 'lax',
-    maxAge: REFRESH_DAYS*24*60*60*1000, path: '/'
-  });
-
-  const newAccess = signAccessToken(stored.userId);
-  res.json({ accessToken: newAccess });
+exports.refresh = async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(401).json({ message: 'No refresh token' });
+  try {
+    const decoded = jwt.verify(refreshToken, REFRESH_SECRET);
+    const { accessToken } = generateTokens(decoded.id);
+    // return new access token, keep same refresh
+    res.json({ accessToken });
+  } catch {
+    res.status(403).json({ message: 'Invalid refresh token' });
+  }
 };
 
-exports.logout = async (req,res)=>{
-  const token = req.cookies?.refreshToken;
-  if(token) await RefreshToken.deleteOne({ tokenHash: hashToken(token) });
-  res.clearCookie('refreshToken', { path: '/' });
-  res.json({ success: true });
+exports.logout = async (req, res) => {
+  res.json({ message: 'Logged out' });
 };
