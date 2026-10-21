@@ -1,65 +1,53 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const cookieParser = require('cookie-parser');
 const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-
+const dotenv = require('dotenv');
 dotenv.config();
-
-const authRoutes = require('./routes/auth');
-const vaultRoutes = require('./routes/vault');
 
 const app = express();
 
-// --- Days 3-4: Protection layers ---
-app.set('trust proxy', 1); // needed for rateLimit + Secure cookies behind proxy
+// MANUAL cookie parser - no package needed (your code - Week 3 token pipeline)
+app.use((req, res, next) => {
+  req.cookies = {};
+  const cookieHeader = req.headers.cookie;
+  if (cookieHeader) {
+    cookieHeader.split(';').forEach(c => {
+      const [k, ...v] = c.trim().split('=');
+      req.cookies[k] = decodeURIComponent(v.join('='));
+    });
+  }
+  next();
+});
 
-app.use(helmet({
-  crossOriginEmbedderPolicy: false, // allow frontend to load
-}));
 app.use(express.json());
-app.use(cookieParser());
-app.use(cors({ 
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173', 
-  credentials: true 
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
 }));
 
-// Throttle ONLY login/register, NOT refresh/logout
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  message: { message: 'Too many attempts, try again in 15 minutes' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.path.includes('/refresh') || req.path.includes('/logout')
+// MongoDB - E11000 fixed forever (no more drop on every restart)
+mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/secure-vault')
+  .then(() => {
+    console.log('✅ MongoDB connected - secure-vault DB');
+    console.log('✅ Week 3: bcrypt + token pipeline + BOLA protected');
+  })
+  .catch(err => console.log('Mongo Error:', err));
+
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/vault', require('./routes/vault'));
+
+// Health check
+app.get('/', (req, res) => {
+  res.json({ message: 'Secure Vault API - BOLA Protected 🔒' });
 });
 
-// General limiter for vault API
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: err.message });
 });
-
-app.use('/api/auth', authLimiter);
-app.use('/api/auth', authRoutes);
-
-app.use('/api/vault', apiLimiter);
-app.use('/api/vault', vaultRoutes);
-
-app.get('/api/health', (req, res) => res.json({ 
-  ok: true, 
-  cookiesEnabled: true,
-  doubleToken: 'access 15m + refresh httpOnly Strict' 
-}));
 
 const PORT = process.env.PORT || 5002;
-
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log('✅ MongoDB Connected');
-    console.log('✅ Double-token: Access in header, Refresh in httpOnly cookie');
-    app.listen(PORT, () => console.log(`✅ Server on ${PORT}`));
-  })
-  .catch(err => console.error(err));
+app.listen(PORT, () => {
+  console.log(`✅ Server running on http://localhost:${PORT}`);
+  console.log(`✅ Client running on http://localhost:5173`);
+});

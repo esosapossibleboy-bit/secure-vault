@@ -1,18 +1,8 @@
 const mongoose = require('mongoose');
+const vaultSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  content: { type: String, required: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
+}, { timestamps: true });
 
-const VaultSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-    unique: true,
-    index: true
-  },
-  blob: {
-    type: String,
-    required: true,
-    maxlength: 100000
-  }
-}, { timestamps: true, strict: true });
-
-module.exports = mongoose.model('Vault', VaultSchema);
+module.exports = mongoose.model('Vault', vaultSchema);

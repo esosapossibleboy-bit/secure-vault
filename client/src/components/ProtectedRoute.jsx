@@ -1,9 +1,18 @@
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import useAuth from '../hooks/useAuth';
 
-export default function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  if(loading) return <div className="p-10">Loading secure vault...</div>;
-  if(!user) return <Navigate to="/login" replace />;
+const ProtectedRoute = ({ children }) => {
+  const auth = useAuth();
+  
+  // This prevents crash
+  if (!auth) return <div>Loading auth...</div>;
+  
+  const { user, loading } = auth;
+
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <Navigate to="/login" />;
+
   return children;
-}
+};
+
+export default ProtectedRoute;

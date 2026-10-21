@@ -1,22 +1,31 @@
 const Vault = require('../models/Vault');
 
-exports.getVault = async (req,res)=>{
-  const vault = await Vault.findOne({ userId: req.userId });
-  res.json(vault || { blob: null });
+exports.createVault = async (req,res)=>{
+  try{
+    const vault = await Vault.create({ name: req.body.name, owner: req.user._id });
+    res.status(201).json(vault);
+  }catch(e){ res.status(400).json({message:e.message}); }
 };
 
-exports.saveVault = async (req,res)=>{
-  const { blob } = req.body;
-  if(!blob) return res.status(400).json({ error: 'Blob required' });
-  const vault = await Vault.findOneAndUpdate(
-    { userId: req.userId },
-    { userId: req.userId, blob },
-    { upsert: true, new: true, runValidators: true }
-  );
-  res.json(vault);
+exports.getMyVaults = async (req,res)=>{
+  const vaults = await Vault.find({ owner: req.user._id });
+  res.json(vaults);
+};
+
+exports.getVault = async (req,res)=>{ res.json(req.vault); };
+
+exports.updateVault = async (req,res)=>{
+  req.vault.name = req.body.name || req.vault.name;
+  await req.vault.save();
+  res.json(req.vault);
 };
 
 exports.deleteVault = async (req,res)=>{
-  await Vault.deleteOne({ userId: req.userId });
-  res.json({ message: 'Vault cleared' });
+  await req.vault.deleteOne();
+  res.json({message:'Deleted'});
+};
+
+exports.getAllVaults = async (req,res)=>{
+  const vaults = await Vault.find();
+  res.json(vaults);
 };

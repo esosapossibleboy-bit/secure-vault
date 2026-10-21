@@ -1,17 +1,19 @@
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET;
 
-module.exports = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'No access token' });
-  }
-  const token = authHeader.split(' ')[1];
+const protect = (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    let token = req.cookies?.token;
+    if (!token && req.headers.authorization?.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+    if (!token) return res.status(401).json({ message: 'Not authorized, no token' });
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'week3_super_long_secret_key_esosa_2026_change_this');
+    req.user = { _id: decoded.userId };
     next();
-  } catch {
-    return res.status(401).json({ message: 'Invalid access token' });
+  } catch (err) {
+    return res.status(401).json({ message: 'Token invalid or expired' });
   }
 };
+
+module.exports = { protect };
