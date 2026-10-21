@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 
 export default function Login() {
-  const [email, setEmail] = useState("esosa2026@test.com");
-  const [password, setPassword] = useState("123456");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const { login } = useAuth();
   const [error, setError] = useState("");
 
@@ -20,7 +20,6 @@ export default function Login() {
   return (
     <div style={{ padding: "40px", maxWidth: "400px", margin: "0 auto", fontFamily: "system-ui" }}>
       
-      {/* === WEEK 6: DEMO WARNING BANNER === */}
       <div style={{ 
         background: "#fef2f2", 
         border: "1px solid #fecaca", 
