@@ -1,11 +1,16 @@
 import { useState } from "react";
+import { decryptData } from "../utils/crypto";
 
 export default function VaultCard({ vault, onDelete }) {
   const [show, setShow] = useState(false);
-  const parts = vault.content ? vault.content.split("|") : [];
-  const username = vault.username || parts[0]?.trim() || "—";
-  const password = vault.password || parts[1]?.trim() || vault.content;
-  const url = vault.url || parts[2]?.trim() || "";
+  
+  // Decrypt client-side
+  const rawUsername = vault.username || vault.content?.split("|")[0] || "—";
+  const rawPassword = vault.password || vault.content?.split("|")[1] || vault.content;
+  const url = vault.url || vault.content?.split("|")[2] || "";
+
+  const username = decryptData(rawUsername.trim());
+  const password = decryptData(rawPassword.trim());
 
   return (
     <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: "12px", padding: "16px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
@@ -23,15 +28,17 @@ export default function VaultCard({ vault, onDelete }) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "13px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", background: "#f9fafb", padding: "8px", borderRadius: "6px" }}>
-          <span style={{ color: "#6b7280" }}>Username</span>
+          <span style={{ color: "#6b7280" }}>Username (decrypted client)</span>
           <span style={{ fontFamily: "monospace" }}>{username} <button onClick={() => navigator.clipboard.writeText(username)}>📋</button></span>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", background: "#f9fafb", padding: "8px", borderRadius: "6px" }}>
-          <span style={{ color: "#6b7280" }}>Password</span>
+        <div style={{ display: "flex", justifyContent: "space-between", background: "#ecfdf5", padding: "8px", borderRadius: "6px", border: "1px solid #a7f3d0" }}>
+          <span style={{ color: "#065f46" }}>Password 🔐 AES decrypted</span>
           <span style={{ fontFamily: "monospace" }}>{show ? password : "••••••••"} <button onClick={() => setShow(!show)}>{show ? "🙈" : "👁️"}</button> <button onClick={() => navigator.clipboard.writeText(password)}>📋</button></span>
         </div>
       </div>
-      <div style={{ marginTop: "8px", fontSize: "10px", color: "#9ca3af" }}>BOLA ID: {vault._id.slice(-6)} • Only yours</div>
+      <div style={{ marginTop: "8px", fontSize: "10px", color: "#9ca3af" }}>
+        Encrypted in DB: {(vault.password || "").slice(0,20)}... • BOLA ID: {vault._id.slice(-6)} • Only yours
+      </div>
     </div>
   );
 }
