@@ -1,25 +1,51 @@
-import { useState } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useState } from "react";
+import { useAuth } from "../hooks/useAuth";
 
 export default function Login() {
-  const [email, setEmail] = useState('esosa2026@test.com');
-  const [password, setPassword] = useState('123456');
+  const [email, setEmail] = useState("esosa2026@test.com");
+  const [password, setPassword] = useState("123456");
   const { login } = useAuth();
-  const nav = useNavigate();
+  const [error, setError] = useState("");
 
-  const handle = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    await login(email, password);
-    nav('/');
+    try {
+      await login(email, password);
+    } catch (err) {
+      setError("Login failed - check credentials");
+      console.error(err);
+    }
   };
 
   return (
-    <form onSubmit={handle} className="p-8">
-      <h1>Secure Vault Login</h1>
-      <input value={email} onChange={e=>setEmail(e.target.value)} />
-      <input type="password" value={password} onChange={e=>setPassword(e.target.value)} />
-      <button type="submit">Login</button>
-    </form>
+    <div style={{ padding: "40px", maxWidth: "400px", margin: "0 auto" }}>
+      <h2>Secure Vault - Login</h2>
+      <p style={{ color: "gray" }}>BOLA Protected - Week 3 + 4</p>
+      
+      <form onSubmit={handleLogin}>
+        <input 
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+        />
+        <input 
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+        />
+        <button type="submit" style={{ width: "100%", padding: "10px", background: "black", color: "white" }}>
+          Login
+        </button>
+      </form>
+      
+      {error && <p style={{ color: "red" }}>{error}</p>}
+      <p style={{ marginTop: "20px", fontSize: "12px", color: "gray" }}>
+        If not logged in: You are not logged in - BOLA blocked (401)
+      </p>
+    </div>
   );
 }
