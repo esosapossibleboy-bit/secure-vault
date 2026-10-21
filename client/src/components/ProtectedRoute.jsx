@@ -1,18 +1,19 @@
-import { Navigate } from 'react-router-dom';
-import useAuth from '../hooks/useAuth';
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 
-const ProtectedRoute = ({ children }) => {
-  const auth = useAuth();
-  
-  // This prevents crash
-  if (!auth) return <div>Loading auth...</div>;
-  
-  const { user, loading } = auth;
+export default function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
 
-  if (loading) return <div>Loading...</div>;
-  if (!user) return <Navigate to="/login" />;
+  // Still checking localStorage token
+  if (loading) {
+    return <p style={{ padding: "40px" }}>Checking auth - BOLA protected...</p>;
+  }
 
+  // If NOT logged in → automatically route back to index (Login)
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  // If logged in → show the page (Dashboard)
   return children;
-};
-
-export default ProtectedRoute;
+}
