@@ -6,7 +6,27 @@ const router = express.Router();
 
 router.post("/register", async (req, res) => {
   try {
+    // === WEEK 6: BLOCK PUBLIC REGISTRATION ===
+    // Set DISABLE_PUBLIC_SIGNUP=true on Render to lock site after grading
+    if (process.env.DISABLE_PUBLIC_SIGNUP === 'true') {
+      return res.status(403).json({ 
+        message: "Public registration closed - Academic Demo Only. Contact admin." 
+      });
+    }
+
     const { email, password } = req.body;
+    
+    // Optional: Only allow your test emails (extra lock)
+    const allowedEmails = [
+      "esosa2026@test.com",
+      process.env.ADMIN_EMAIL
+    ].filter(Boolean);
+    
+    // If ADMIN lock enabled, only allow listed emails
+    if (process.env.LOCK_TO_ADMIN_ONLY === 'true' && !allowedEmails.includes(email)) {
+      return res.status(403).json({ message: "Registration restricted to admin only" });
+    }
+
     const user = await User.create({ email, password });
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
     res.cookie("token", token, { httpOnly: true, sameSite: "lax" });

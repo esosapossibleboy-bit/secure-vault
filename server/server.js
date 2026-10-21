@@ -38,10 +38,13 @@ const authLimiter = rateLimit({
 
 app.use(generalLimiter);
 
-// === CORS LOCKED FOR PRODUCTION ===
+// === CORS LOCKED FOR PRODUCTION - UPDATED ===
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
+  "https://secure-vault-woad.vercel.app",
+  "https://secure-vault-cf2g.vercel.app",
+  "https://secure-vault-woad-esosatech.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
@@ -49,6 +52,7 @@ app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true); // allow Postman/mobile
     if (allowedOrigins.includes(origin)) return callback(null, true);
+    console.log("Not allowed by CORS:", origin);
     return callback(new Error("Not allowed by CORS"), false);
   },
   credentials: true
